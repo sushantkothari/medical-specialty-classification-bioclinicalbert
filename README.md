@@ -11,11 +11,13 @@ The project covers the full data science lifecycle: multi-table data integration
 ## Key Highlights
 
 - Injury prediction across 1,000 synthetic triathletes over 366 days
-- Multi-table data integration across athlete profiles, daily biometrics, and activity sessions
-- Feature engineering from wearable signals: HRV, heart rate, sleep, and workload metrics
+- Multi-table relational merge across athlete profiles, daily biometrics, and activity sessions
+- Temporal alignment of activity sessions to daily grain before modeling
+- Feature engineering from wearable signals: HRV, heart rate, sleep debt, and workload metrics
+- ACWR-based workload modeling grounded in sports science injury risk literature
+- SHAP-based interpretability for per-athlete explainability
 - Handles severe class imbalance inherent to injury prediction tasks
-- Comprehensive evaluation: accuracy, precision, recall, F1, ROC-AUC
-- Athlete-level and day-level prediction granularity
+- Comprehensive evaluation: ROC-AUC, PR-AUC, precision, recall, F1, calibration curve
 - End-to-end reproducible pipeline in a single Jupyter Notebook
 
 ---
@@ -49,76 +51,51 @@ The dataset contains synthetic data for **1,000 triathletes** over the full year
 
 ---
 
-## System Architecture
-
-### End-to-End Pipeline
-
-```
-athletes.csv + daily_data.csv + activity_data.csv
-                    ↓
-        Multi-Table Merge on Athlete ID
-                    ↓
-     Exploratory Data Analysis & Distributions
-                    ↓
-Feature Engineering (rolling workload, HRV trends,
-    ACWR, sleep deficit, training load spikes)
-                    ↓
-        Class Imbalance Handling (SMOTE / class weights)
-                    ↓
-         Train / Validation / Test Split
-                    ↓
-     Model Training (multiple classifiers compared)
-                    ↓
-  Evaluation: Accuracy, F1, Recall, ROC-AUC, Confusion Matrix
-                    ↓
-       Feature Importance & Interpretability Analysis
-```
-
----
-
 ## Machine Learning Methodology
 
 ### Data Integration
 
-Three CSV files are merged on `athlete_id` to form a unified daily record per athlete. Activity sessions are aggregated per day (e.g., total training load, session count, average intensity) before joining with the daily biometric table.
+Three CSV files are merged on `athlete_id` to form a unified daily record per athlete. Activity sessions are aggregated per day — computing total training load, session count, average RPE, and discipline-specific volumes — before joining with the daily biometric table to produce a single flat feature matrix at daily grain.
 
 ### Feature Engineering
 
 Key predictive features derived from raw data include:
 
-- **Acute:Chronic Workload Ratio (ACWR)** — rolling 7-day vs. 28-day training load ratio, a widely used injury risk proxy
-- **HRV trend** — rolling mean and standard deviation of heart rate variability
-- **Sleep deficit** — deviation from baseline sleep duration
-- **Resting heart rate trend** — multi-day rolling average
-- **Training monotony** — standard deviation of daily load (low variety = higher risk)
-- **Session frequency and type** — swim, bike, run session counts per rolling window
-- **Cumulative fatigue indicators** — multi-day lagged load accumulation
+- **Acute:Chronic Workload Ratio (ACWR)** — rolling 7-day vs. 28-day training load ratio, a widely used injury risk proxy in sports science
+- **Training Monotony & Strain Index** — standard deviation and product-based load quality metrics
+- **HRV rolling mean, std, and trend slope** — multi-day heart rate variability trajectory
+- **Sleep debt accumulation** — cumulative deviation from each athlete's baseline sleep duration
+- **Resting heart rate trend** — multi-day rolling average indicating recovery state
+- **Discipline-specific load** — separate swim, bike, and run session volume per rolling window
+- **RPE-weighted session load** — perceived exertion scaled by duration
+- **Lagged injury flag** — temporal context from prior injury events
 
 ### Class Imbalance Handling
 
 Injury events are rare relative to non-injury days, creating significant class imbalance. The project addresses this through:
 
-- **SMOTE** (Synthetic Minority Oversampling Technique) for training set balancing
-- **Class-weighted loss** in applicable models
-- **Threshold tuning** to optimize recall for injury-positive predictions
+- **SMOTE** applied strictly to the training set only to avoid data leakage
+- **Class-weighted loss functions** in applicable models
+- **Probability threshold calibration** to optimize recall for injury-positive predictions
 
 ### Training Configuration
 
 | Parameter | Value |
 |---|---|
 | Task | Binary Classification (injury / no injury) |
-| Primary Metric | ROC-AUC, Recall |
-| Split Strategy | Athlete-wise stratified split |
-| Imbalance Handling | SMOTE + class weights |
-| Feature Selection | Correlation analysis + importance ranking |
+| Primary Metrics | ROC-AUC, PR-AUC, Recall |
+| Split Strategy | Athlete-wise stratified train / validation / test split |
+| Imbalance Handling | SMOTE + class weights + threshold calibration |
+| Feature Selection | Correlation analysis + SHAP importance ranking |
 
 ### Models Evaluated
 
 - Logistic Regression (baseline)
 - Random Forest
-- Gradient Boosting (XGBoost / LightGBM)
+- XGBoost
+- LightGBM
 - Support Vector Machine
-- Best model selected by ROC-AUC on validation set
+- Best model selected by ROC-AUC on the validation set
 
 ---
 
@@ -129,11 +106,13 @@ The model is evaluated using metrics appropriate for imbalanced binary classific
 ### Metrics
 
 - **ROC-AUC** — primary ranking metric for injury risk scoring
+- **PR-AUC** — precision-recall area under curve, robust to class imbalance
 - **Recall (Sensitivity)** — prioritized to minimize missed injury predictions
 - **Precision** — to assess false alarm rate
 - **F1-Score** — harmonic mean for overall classification quality
 - **Confusion Matrix** — breakdown of true/false positives and negatives
-- **Feature Importance** — ranking of most predictive biometric and workload signals
+- **Calibration Curve** — reliability of predicted injury probabilities
+- **SHAP Values** — feature-level contribution analysis per prediction
 
 ---
 
@@ -149,7 +128,7 @@ cd triathlete-injury-prediction
 ### Install Dependencies
 
 ```bash
-pip install pandas numpy scikit-learn xgboost lightgbm imbalanced-learn matplotlib seaborn
+pip install pandas numpy scikit-learn xgboost lightgbm imbalanced-learn shap matplotlib seaborn
 ```
 
 ### Download the Dataset
@@ -157,6 +136,8 @@ pip install pandas numpy scikit-learn xgboost lightgbm imbalanced-learn matplotl
 Download the three CSV files from Zenodo and place them in the project directory:
 
 > [https://zenodo.org/records/15401061](https://zenodo.org/records/15401061)
+
+Expected file layout:
 
 ```
 ├── athletes.csv
@@ -169,15 +150,16 @@ Download the three CSV files from Zenodo and place them in the project directory
 ## Usage
 
 1. Open the notebook in Google Colab or Jupyter Notebook.
-2. Ensure `athletes.csv`, `daily_data.csv`, and `activity_data.csv` are in the working directory (or mounted via Google Drive).
+2. Ensure `athletes.csv`, `daily_data.csv`, and `activity_data.csv` are in the working directory or mounted via Google Drive.
 3. Run notebook cells in order:
-   - Data loading and multi-table merging
+   - Data loading and multi-table relational merge
+   - Temporal alignment and activity aggregation to daily grain
    - Exploratory data analysis and visualizations
-   - Feature engineering (rolling windows, ACWR, HRV trends)
-   - Class imbalance handling
+   - Feature engineering (ACWR, HRV trends, sleep debt, monotony, strain)
+   - Class imbalance handling (SMOTE, class weights, threshold tuning)
    - Model training and hyperparameter tuning
-   - Evaluation and metric reporting
-   - Feature importance and interpretability analysis
+   - Evaluation: ROC-AUC, PR-AUC, F1, confusion matrix, calibration curve
+   - SHAP-based feature importance and interpretability analysis
 4. Review evaluation outputs and per-athlete injury risk scores.
 
 ---
@@ -203,6 +185,7 @@ Download the three CSV files from Zenodo and place them in the project directory
 - XGBoost
 - LightGBM
 - Imbalanced-learn (SMOTE)
+- SHAP
 - Matplotlib
 - Seaborn
 - Google Colab
@@ -211,11 +194,12 @@ Download the three CSV files from Zenodo and place them in the project directory
 
 ## Engineering Principles
 
-- Athlete-wise data splitting to prevent identity leakage across train/test sets
-- Rolling window feature engineering grounded in sports science literature
-- ACWR-based workload modeling aligned with established injury risk research
-- SMOTE and class-weighted training to handle injury event rarity
-- Recall-prioritized threshold selection for safety-critical prediction
+- Athlete-wise stratified splitting to prevent identity leakage across train/test sets
+- Activity aggregation to daily grain before any feature computation or merging
+- SMOTE applied only to training set to prevent target leakage
+- ACWR-based workload modeling aligned with established sports science literature
+- Recall-prioritized threshold calibration for safety-critical injury prediction
+- SHAP values for transparent, per-prediction explainability
 - Modular notebook structure for reproducibility and experimentation
 - All dataset citation and licensing requirements respected
 
@@ -223,13 +207,13 @@ Download the three CSV files from Zenodo and place them in the project directory
 
 ## Potential Extensions
 
-- Deep learning approaches: LSTM or Transformer on daily time series per athlete
-- Multi-class prediction: injury type or severity classification
-- Personalized risk thresholds calibrated per athlete baseline
-- Real-time wearable integration via streaming pipeline
-- Flask or FastAPI deployment for coach-facing injury risk dashboard
-- SHAP-based per-athlete explainability reports
+- LSTM or Transformer models operating directly on raw daily time series per athlete
+- Multi-class prediction for injury type or body region classification
+- Personalized risk thresholds calibrated to each athlete's historical baseline
+- Real-time wearable integration via a streaming data pipeline
+- Flask or FastAPI deployment for a coach-facing injury risk dashboard
 - Integration with GPS and power meter data for richer load modeling
+- Federated learning to train across athlete cohorts while preserving privacy
 
 ---
 
