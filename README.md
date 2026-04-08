@@ -1,6 +1,3 @@
-The badges use external URLs from `shields.io` — they're not local image files, so they'll render perfectly on GitHub without any screenshots in your repo. But if you'd prefer to exclude them entirely, here's the full README without any `<img>` tags whatsoever:
-
-````markdown
 # Triathlete Injury Prediction Using Machine Learning
 
 ## Overview
@@ -252,4 +249,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 **Sushant Kothari**  
 [GitHub](https://github.com/sushantkothari)
-````
