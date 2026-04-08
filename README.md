@@ -8,6 +8,12 @@ Every design decision in this project reflects the constraints and priorities of
 
 ---
 
+## Why This Project Matters
+
+Automatic medical specialty routing from transcription notes is a high-value problem in clinical workflow automation, medical coding, and EHR triage systems. This project demonstrates how modern clinical NLP techniques — domain-specific pretraining, long-document chunking, and imbalance-aware fine-tuning — can be combined into a rigorous, deployment-ready classification pipeline built entirely on open-source tools and real clinical text.
+
+---
+
 ## Key Highlights
 
 - Fine-tuned `emilyalsentzer/Bio_ClinicalBERT` on the MTSamples real-world medical transcription dataset
@@ -30,8 +36,8 @@ Every design decision in this project reflects the constraints and priorities of
 | File | Description |
 |---|---|
 | `medical_specialty_classification_using_bioclinicalbert.ipynb` | Complete end-to-end notebook |
-| `mtsamples.zip` | MTSamples dataset (included) |
-| `note_level_test_predictions.csv` | Exported note-level test predictions |
+| `mtsamples.zip` | MTSamples dataset (included — no external download needed) |
+| `note_level_test_predictions.csv` | Exported note-level test set predictions |
 | `README.md` | Project documentation |
 | `LICENSE` | MIT License |
 
@@ -61,45 +67,24 @@ This project uses the **MTSamples** dataset — a publicly available collection 
 
 ### Pipeline Overview
 
-```
-mtsamples.zip
-      ↓
-Data Extraction, Cleaning, Deduplication
-      ↓
-Structured Multi-Field Input Construction
-  "Sample name: ... [SEP] Description: ... [SEP] Keywords: ... [SEP] Transcription: ..."
-      ↓
-Low-Sample Class Filtering (threshold: 80 samples)
-      ↓
-Exploratory Data Analysis
-  Class distribution · Input length distribution · 90th percentile token count
-      ↓
-Label Encoding + Stratified Train / Val / Test Split (80 / 10 / 10)
-      ↓
-Optional Minority-Class Augmentation (nlpaug, disabled by default)
-      ↓
-Class Weight Computation — clipped to [1.0, 5.0]
-      ↓
-BioClinicalBERT Tokenizer (max_length=384)
-      ↓
-Overlapping Chunk Expansion (stride=96, window=382 tokens)
-      ↓
-HuggingFace Dataset Construction + DataCollatorWithPadding
-      ↓
-Phase 1: Warm-Up — frozen encoder, head only, lr=5e-4, 1 epoch
-      ↓
-Phase 2: Full Fine-Tuning — all layers, cosine LR, early stopping on macro F1
-      ↓
-Chunk-Level Evaluation: accuracy · macro F1 · weighted F1 · confusion matrix · per-class accuracy
-      ↓
-Note-Level Aggregation: average chunk logits → argmax → one prediction per note
-      ↓
-Note-Level Evaluation: accuracy · macro F1 · weighted F1 · confusion matrix · per-class accuracy
-      ↓
-Confidence Distribution Analysis + Error Analysis
-      ↓
-Export: note_level_test_predictions.csv
-```
+1. Extract and load `mtsamples.csv` from `mtsamples.zip`
+2. Clean text fields, drop nulls, strip whitespace, remove duplicate records
+3. Construct structured multi-field input per note: `"Sample name: ... [SEP] Description: ... [SEP] Keywords: ... [SEP] Transcription: ..."`
+4. Filter low-sample specialties (minimum threshold: 80 samples)
+5. Exploratory data analysis: class distribution, input length distribution, 90th percentile token count
+6. Label encoding and stratified train / validation / test split (80 / 10 / 10)
+7. Optional minority-class synonym augmentation via `nlpaug` (disabled by default)
+8. Compute balanced class weights, clipped to `[1.0, 5.0]`
+9. Tokenize with BioClinicalBERT tokenizer at `max_length=384`
+10. Expand notes into overlapping chunks (stride = 96 tokens, window = 382 tokens)
+11. Build HuggingFace `Dataset` objects with `DataCollatorWithPadding`
+12. Phase 1 — Warm-Up: train classification head only for 1 epoch (`lr=5e-4`, frozen encoder)
+13. Phase 2 — Full Fine-Tuning: all layers, cosine LR, linear warmup, early stopping on macro F1
+14. Chunk-level evaluation: accuracy, macro F1, weighted F1, confusion matrix, per-class accuracy
+15. Note-level aggregation: average chunk logits per note, argmax for final label
+16. Note-level evaluation: accuracy, macro F1, weighted F1, confusion matrix, per-class accuracy
+17. Confidence distribution analysis and error analysis on misclassified notes
+18. Export `note_level_test_predictions.csv`
 
 ---
 
@@ -114,7 +99,7 @@ All five available clinical metadata fields are concatenated into a single struc
 Clinical notes routinely exceed the 512-token context limit of BERT-family models. Rather than truncating, the pipeline applies an overlapping sliding window:
 
 - Each note is fully tokenized without truncation
-- Token windows of 382 tokens are extracted with a stride of 96 tokens, producing overlapping chunks
+- Token windows of 382 tokens are extracted with a stride of 96 tokens, producing overlapping chunks that share context at boundaries
 - Each window is decoded back to text and re-tokenized with special tokens added
 - At inference time, logits from all chunks of a note are averaged before the final argmax — one prediction per full document
 
